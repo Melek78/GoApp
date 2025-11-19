@@ -109,3 +109,8 @@ func (h *Hub) UnregisterClient(c *Client) {
 func (h *Hub) PublishGroup(ctx context.Context, channel string, payload string) error {
 	return h.rdb.Publish(ctx, channel, payload).Err()
 }
+
+// SendToUser enqueues a payload for delivery to all active connections of a user.
+func (h *Hub) SendToUser(userID string, payload []byte) {
+	h.broadcast <- &Message{TargetUser: userID, Payload: payload}
+}

@@ -32,13 +32,12 @@ func main() {
 		log.Fatalf("failed to open sqlite db: %v", err)
 	}
 
-	// ✅ Migrate all tables at once
+	// ✅ Migrate all tables at once (include private messages)
 	if err := db.AutoMigrate(
 		&entity.User{},
-		//&entity.PrivateMessage{},
+		&entity.PrivateMessage{},
 		&entity.Group{},
 		&entity.GroupMember{},
-		//&entity.GroupMessage{},
 	); err != nil {
 		log.Fatalf("migrate failed: %v", err)
 	}
@@ -49,13 +48,15 @@ func main() {
 	// services
 	userSvc := service.NewUserService(db)
 	groupSvc := service.NewGroupService(db, rdb)
+	pmSvc := service.NewPrivateMessageService(db)
+
+	// ws hub (init before controllers needing it)
+	hub := ws.NewHub(rdb)
 
 	// controllers
 	authCtrl := controller.NewAuthController(userSvc)
 	groupCtrl := controller.NewGroupController(groupSvc)
-
-	// ws hub
-	hub := ws.NewHub(rdb)
+	pmCtrl := controller.NewPrivateMessageController(pmSvc, userSvc, hub)
 
 	r.POST("/signup", authCtrl.SignUp)
 	r.POST("/login", authCtrl.Login)
@@ -67,10 +68,13 @@ func main() {
 	protected.GET("/protected", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "You are authenticated"})
 	})
+	// private messages REST
+	protected.GET("/messages/private/:otherUserID", pmCtrl.ListConversation)
+	protected.POST("/messages/private/read", pmCtrl.MarkRead)
 
 	// ws endpoint
 	r.GET("/ws", func(c *gin.Context) {
-		ws.ServeWS(hub, c)
+		ws.ServeWS(hub, pmSvc, c)
 	})
 
 	log.Println("Starting server on :8080")

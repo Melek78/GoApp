@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/abeme/go_sm_api/service"
 	"github.com/abeme/go_sm_api/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -17,7 +18,7 @@ var upgrader = websocket.Upgrader{
 
 // ServeWS upgrades the HTTP connection to a WebSocket, authenticates the user via JWT,
 // registers the client with the hub, and starts pumps.
-func ServeWS(h *Hub, c *gin.Context) {
+func ServeWS(h *Hub, pmSvc service.PrivateMessageService, c *gin.Context) {
 	// get token from Authorization header
 	auth := c.GetHeader("Authorization")
 	if auth == "" {
@@ -46,6 +47,7 @@ func ServeWS(h *Hub, c *gin.Context) {
 		conn:   conn,
 		send:   make(chan []byte, 256),
 		userID: claims.Subject,
+		pmSvc:  pmSvc,
 	}
 
 	h.RegisterClient(client)
