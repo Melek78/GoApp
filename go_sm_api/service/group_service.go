@@ -64,6 +64,15 @@ func (s *GroupService) GetMembers(groupID uint) ([]string, error) {
 	return ids, nil
 }
 
+// IsMember checks whether a user is member of a given group.
+func (s *GroupService) IsMember(groupID uint, userID string) (bool, error) {
+	var cnt int64
+	if err := s.db.Model(&entity.GroupMember{}).Where("group_id = ? AND user_id = ?", groupID, userID).Count(&cnt).Error; err != nil {
+		return false, err
+	}
+	return cnt > 0, nil
+}
+
 func (s *GroupService) PublishGroupMessage(ctx context.Context, groupID uint, msg string) error {
 	ch := "group:" + strconv.FormatUint(uint64(groupID), 10)
 	return s.rdb.Publish(ctx, ch, msg).Err()

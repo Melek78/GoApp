@@ -18,7 +18,7 @@ var upgrader = websocket.Upgrader{
 
 // ServeWS upgrades the HTTP connection to a WebSocket, authenticates the user via JWT,
 // registers the client with the hub, and starts pumps.
-func ServeWS(h *Hub, pmSvc service.PrivateMessageService, c *gin.Context) {
+func ServeWS(h *Hub, pmSvc service.PrivateMessageService, groupSvc *service.GroupService, gmSvc service.GroupMessageService, userSvc service.UserService, c *gin.Context) {
 	// get token from Authorization header
 	auth := c.GetHeader("Authorization")
 	if auth == "" {
@@ -43,11 +43,14 @@ func ServeWS(h *Hub, pmSvc service.PrivateMessageService, c *gin.Context) {
 	}
 
 	client := &Client{
-		hub:    h,
-		conn:   conn,
-		send:   make(chan []byte, 256),
-		userID: claims.Subject,
-		pmSvc:  pmSvc,
+		hub:         h,
+		conn:        conn,
+		send:        make(chan []byte, 256),
+		userID:      claims.Subject,
+		pmSvc:       pmSvc,
+		groupSvc:    groupSvc,
+		groupMsgSvc: gmSvc,
+		userSvc:     userSvc,
 	}
 
 	h.RegisterClient(client)

@@ -36,6 +36,7 @@ func main() {
 	if err := db.AutoMigrate(
 		&entity.User{},
 		&entity.PrivateMessage{},
+		&entity.GroupMessage{},
 		&entity.Group{},
 		&entity.GroupMember{},
 	); err != nil {
@@ -49,13 +50,14 @@ func main() {
 	userSvc := service.NewUserService(db)
 	groupSvc := service.NewGroupService(db, rdb)
 	pmSvc := service.NewPrivateMessageService(db)
+	gmSvc := service.NewGroupMessageService(db)
 
 	// ws hub (init before controllers needing it)
-	hub := ws.NewHub(rdb)
+	hub := ws.NewHub(rdb, groupSvc)
 
 	// controllers
 	authCtrl := controller.NewAuthController(userSvc)
-	groupCtrl := controller.NewGroupController(groupSvc)
+	groupCtrl := controller.NewGroupController(groupSvc, hub)
 	pmCtrl := controller.NewPrivateMessageController(pmSvc, userSvc, hub)
 
 	r.POST("/signup", authCtrl.SignUp)
@@ -74,7 +76,7 @@ func main() {
 
 	// ws endpoint
 	r.GET("/ws", func(c *gin.Context) {
-		ws.ServeWS(hub, pmSvc, c)
+		ws.ServeWS(hub, pmSvc, groupSvc, gmSvc, userSvc, c)
 	})
 
 	log.Println("Starting server on :8080")

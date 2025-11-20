@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
@@ -16,11 +17,14 @@ const (
 )
 
 type Client struct {
-	hub    *Hub
-	conn   *websocket.Conn
-	send   chan []byte
-	userID string
-	pmSvc  service.PrivateMessageService
+	hub         *Hub
+	conn        *websocket.Conn
+	send        chan []byte
+	userID      string
+	pmSvc       service.PrivateMessageService
+	groupSvc    *service.GroupService
+	groupMsgSvc service.GroupMessageService
+	userSvc     service.UserService
 }
 
 func (c *Client) readPump() {
@@ -39,10 +43,11 @@ func (c *Client) readPump() {
 		}
 		// Envelope structure
 		var env struct {
-			Type   string `json:"type"`
-			To     string `json:"to"`
-			Body   string `json:"body"`
-			TempID string `json:"tempId"`
+			Type    string `json:"type"`
+			To      string `json:"to"`
+			Body    string `json:"body"`
+			TempID  string `json:"tempId"`
+			GroupID uint   `json:"groupId"`
 		}
 		if err := json.Unmarshal(raw, &env); err != nil {
 			c.send <- []byte(`{"type":"error","error":"invalid_json"}`)
@@ -87,6 +92,54 @@ func (c *Client) readPump() {
 			c.hub.SendToUser(pm.RecipientID, evtBytes)
 			// echo event to sender (in addition to ack)
 			c.send <- evtBytes
+		case "group":
+			if env.GroupID == 0 || env.Body == "" {
+				c.send <- []byte(`{"type":"error","error":"missing_fields"}`)
+				continue
+			}
+			// membership check
+			ok, err := c.groupSvc.IsMember(env.GroupID, c.userID)
+			if err != nil || !ok {
+				c.send <- []byte(`{"type":"error","error":"not_a_member"}`)
+				continue
+			}
+			// persist
+			gm, err := c.groupMsgSvc.Send(env.GroupID, c.userID, env.Body)
+			if err != nil {
+				c.send <- []byte(`{"type":"error","error":"send_failed"}`)
+				continue
+			}
+			ts := gm.CreatedAt.Unix()
+			// Ack back to sender (no local echo to avoid duplicate when pubsub returns)
+			ack := map[string]interface{}{
+				"type":    "group_ack",
+				"tempId":  env.TempID,
+				"id":      gm.ID,
+				"groupId": env.GroupID,
+				"from":    gm.SenderID,
+				"body":    gm.Body,
+				"ts":      ts,
+			}
+			if b, _ := json.Marshal(ack); b != nil {
+				c.send <- b
+			}
+			// Build event including sender email
+			var senderEmail string
+			if u, err := c.userSvc.GetByID(c.userID); err == nil {
+				senderEmail = u.Email
+			}
+			evt := map[string]interface{}{
+				"type":      "group",
+				"id":        gm.ID,
+				"groupId":   env.GroupID,
+				"from":      gm.SenderID,
+				"fromEmail": senderEmail,
+				"body":      gm.Body,
+				"ts":        ts,
+			}
+			evtBytes, _ := json.Marshal(evt)
+			// publish to redis so all instances/hubs process and filter to members
+			_ = c.hub.PublishGroup(context.Background(), fmt.Sprintf("group:%d", env.GroupID), string(evtBytes))
 		default:
 			// Unknown type
 			c.send <- []byte(`{"type":"error","error":"unsupported_type"}`)
